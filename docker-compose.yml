@@ -1,0 +1,25 @@
+services:
+  redis:
+    image: redis:7.2-alpine
+    container_name: devsearch-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes # Ensure durability for our frontier
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: devsearch-postgres
+    environment:
+      POSTGRES_USER: devsearch_admin
+      POSTGRES_PASSWORD: password123
+      POSTGRES_DB: devsearch_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+volumes:
+  redis_data:
+  postgres_data:
