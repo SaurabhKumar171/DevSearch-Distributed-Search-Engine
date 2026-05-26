@@ -1,25 +1,19 @@
 services:
   redis:
-    image: redis:7.2-alpine
-    container_name: devsearch-redis
+    image: redis/redis-stack:latest
     ports:
-      - "6379:6379"
-    volumes:
-      - redis_data:/data
-    command: redis-server --appendonly yes # Ensure durability for our frontier
+      - "6380:6379"
 
-  postgres:
-    image: postgres:16-alpine
-    container_name: devsearch-postgres
+  prometheus:
+    image: prom/prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml
+
+  grafana:
+    image: grafana/grafana
+    ports:
+      - "3000:3000"
     environment:
-      POSTGRES_USER: devsearch_admin
-      POSTGRES_PASSWORD: password123
-      POSTGRES_DB: devsearch_db
-    ports:
-      - "5432:5432"
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-
-volumes:
-  redis_data:
-  postgres_data:
+      - GF_SECURITY_ADMIN_PASSWORD=secret

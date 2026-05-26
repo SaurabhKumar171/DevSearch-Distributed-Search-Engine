@@ -1,0 +1,8 @@
+global:
+  scrape_interval: 5s # We want aggressive polling for our tests
+
+scrape_configs:
+  - job_name: 'devsearch-worker'
+    static_configs:
+      # host.docker.internal tells the Docker container to look at your host machine
+      - targets: ['host.docker.internal:3001']
