@@ -15,6 +15,17 @@ const rejectedUrlsTotal = new client.Counter({
   help: "Total number of duplicate URLs rejected by the Bloom Filter",
 });
 
+// Gauges for Queue State
+const queueWaitingGauge = new client.Gauge({
+  name: "devsearch_queue_waiting_total",
+  help: "Number of jobs currently waiting in the queue",
+});
+
+const queueActiveGauge = new client.Gauge({
+  name: "devsearch_queue_active_total",
+  help: "Number of jobs actively being processed by the worker",
+});
+
 const startMetricsServer = () => {
   const app = express();
   app.get("/metrics", async (req, res) => {
@@ -31,4 +42,6 @@ module.exports = {
   ingestedUrlsTotal,
   rejectedUrlsTotal,
   startMetricsServer,
+  queueWaitingGauge,
+  queueActiveGauge,
 };
