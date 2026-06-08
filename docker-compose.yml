@@ -17,3 +17,10 @@ services:
       - "3000:3000"
     environment:
       - GF_SECURITY_ADMIN_PASSWORD=secret
+
+  # The Chaos Proxy
+  toxiproxy:
+    image: ghcr.io/shopify/toxiproxy
+    ports:
+      - "8474:8474"   # The Control API (how we inject chaos)
+      - "26380:26380" # The Proxy Port (what Node.js will connect to)
