@@ -24,3 +24,16 @@ services:
     ports:
       - "8474:8474"   # The Control API (how we inject chaos)
       - "26380:26380" # The Proxy Port (what Node.js will connect to)
+
+  cadvisor:
+    image: zcube/cadvisor:latest
+    container_name: cadvisor
+    ports:
+      - "8085:8080"
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:ro
+      - /sys:/sys:ro
+      - /var/lib/docker/:/var/lib/docker:ro
+      - /dev/disk/:/dev/disk:ro
+    privileged: true
