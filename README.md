@@ -37,77 +37,50 @@ This system was deliberately engineered to handle massive throughput without rel
 
 ```mermaid
 flowchart TB
-    %% Architectural Styling & Theme
-    classDef user fill:#f8fafc,stroke:#cbd5e1,stroke-width:2px,color:#334155,stroke-dasharray: 5 5;
-    classDef compute fill:#1e293b,stroke:#3b82f6,stroke-width:2px,color:#f8fafc;
-    classDef datastore fill:#b91c1c,stroke:#f87171,stroke-width:2px,color:#f8fafc;
-    classDef chaos fill:#fef2f2,stroke:#ef4444,stroke-width:2px,color:#991b1b,stroke-dasharray: 5 5;
-    classDef telemetry fill:#f0fdf4,stroke:#22c55e,stroke-width:2px,color:#14532d;
-    classDef note fill:#fef3c7,stroke:#d97706,stroke-width:1px,color:#92400e;
 
-    %% 1. Client / Traffic Generation
-    Client["🌐 Load Generator (k6)<br/>~14,000+ RPS"]:::user
+    Client["🌐 Load Generator (k6)<br/>~14,000+ RPS"]
 
-    %% 2. Edge & Ingestion Layer
     subgraph EdgeLayer ["🛡️ Edge & Ingestion Layer"]
-        direction TB
-        RateLimiter{"🚦 Rate Limiter<br/>(Token Bucket)"}:::compute
-        API["⚙️ Ingestion API<br/>(HTTP 202 Accepted)"]:::compute
-        Reject["⛔ HTTP 429<br/>Too Many Requests"]:::user
-        
-        RateLimiter -- "Pass" --> API
-        RateLimiter -. "Throttle" .-> Reject
+        RateLimiter{"🚦 Token Bucket Rate Limiter"}
+        API["⚙️ Ingestion API<br/>HTTP 202 Accepted"]
+        Reject["⛔ HTTP 429"]
+
+        RateLimiter --> API
+        RateLimiter -.-> Reject
     end
 
-    %% 3. Asynchronous Broker
     subgraph MessageBroker ["📦 Message Broker"]
-        Queue[("🐂 BullMQ<br/>(Redis-backed)")]:::datastore
+        Queue[("🐂 BullMQ")]
     end
 
-    %% 4. Asynchronous Processing
-    subgraph ComputeLayer ["⚡ Async Processing Engine"]
-        direction TB
-        Worker["🛠️ Node.js Worker<br/>(Concurrency: 100)"]:::compute
-        CircuitBreaker{"🔌 Circuit Breaker<br/>(Opossum)"}:::compute
-        
-        Worker -- "Process Job" --> CircuitBreaker
+    subgraph ComputeLayer ["⚡ Async Processing"]
+        Worker["🛠️ Node.js Worker<br/>Concurrency = 100"]
+        CircuitBreaker{"🔌 Opossum Circuit Breaker"}
+
+        Worker --> CircuitBreaker
     end
 
-    %% 5. Data & Chaos Testing
     subgraph StorageLayer ["🗄️ State & Deduplication"]
-        direction TB
-        Toxiproxy{"☠️ Toxiproxy<br/>(500ms Latency Injection)"}:::chaos
-        BloomFilter[("🧠 Redis Bloom Filter<br/>O(1) Space Complexity")]:::datastore
-        
-        Toxiproxy -- "TCP Proxy" --> BloomFilter
+        Toxiproxy{"☠️ Toxiproxy"}
+        BloomFilter[("🧠 Redis Bloom Filter")]
+
+        Toxiproxy --> BloomFilter
     end
 
-    %% 6. Observability
-    subgraph ObservabilityLayer ["📊 Observability & Telemetry"]
-        Prometheus["📡 Prometheus<br/>(Pull-based Scraper)"]:::telemetry
-        Grafana["📈 Grafana<br/>(Real-time Dashboards)"]:::telemetry
-        cAdvisor["🐳 cAdvisor<br/>(Container Hardware Telemetry)"]:::telemetry
-        
-        Prometheus -- "PromQL" --> Grafana
+    subgraph Observability ["📊 Observability"]
+        Prometheus["📡 Prometheus"]
+        Grafana["📈 Grafana"]
+
+        Prometheus --> Grafana
     end
 
-    %% Traffic Routing
-    Client -- "HTTP POST /ingest" --> RateLimiter
-    API -- "1. Enqueue URL" --> Queue
-    Queue -- "2. Async Poll" --> Worker
-    CircuitBreaker -- "3. Network I/O" --> Toxiproxy
+    Client --> RateLimiter
+    API --> Queue
+    Queue --> Worker
+    CircuitBreaker --> Toxiproxy
 
-    %% Telemetry Routing
-    API -. "/metrics" .-> Prometheus
-    Worker -. "Queue Depth" .-> Prometheus
-    StorageLayer -. "RAM/CPU Stats" .-> cAdvisor
-
-    %% Resilience Annotations (FAANG Flex)
-    Note1>BullMQ Exponential Backoff:<br/>Guarantees zero data loss<br/>during ECONNRESET]:::note
-    Note2>Graceful Degradation:<br/>Circuit opens if Latency > 200ms,<br/>preventing Event Loop blocking & OOM]:::note
-
-    Note1 -.-> Queue
-    Note2 -.-> CircuitBreaker
+    API -.-> Prometheus
+    Worker -.-> Prometheus
 ```
 
 ---
