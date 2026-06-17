@@ -13,6 +13,16 @@ module.exports = {
     port: parseInt(process.env.INGEST_PORT, 10) || 3002,
   },
   queue: {
-    name: "url-frontier",
+    // Frontier queue:
+    // Receives seed URLs from the ingestion API.
+    // Responsible for buffering newly discovered URLs before they
+    // are validated, normalized, and scheduled for crawling.
+    ingestionQueue: "queue-urls-ingestion",
+
+    // Fetch queue:
+    // Contains crawl-ready URLs assigned to worker nodes.
+    // Workers consume jobs from this queue to fetch page content,
+    // extract links, and generate new crawl tasks.
+    fetchQueue: "queue-urls-fetch",
   },
 };

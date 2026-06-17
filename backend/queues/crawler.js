@@ -2,7 +2,7 @@ const { Queue } = require("bullmq");
 const connection = require("../lib/redis");
 const config = require("../config");
 
-const frontierQueue = new Queue(config.queue.ingestionQueue, {
+const crawlerQueue = new Queue(config.queue.fetchQueue, {
   connection,
   defaultJobOptions: {
     attempts: 5,
@@ -15,4 +15,4 @@ const frontierQueue = new Queue(config.queue.ingestionQueue, {
   },
 });
 
-module.exports = frontierQueue;
+module.exports = crawlerQueue;

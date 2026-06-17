@@ -8,7 +8,9 @@ const {
   queueActiveGauge,
   queueWaitingGauge,
 } = require("./lib/metrics");
-const createFrontierWorker = require("./workers/frontier");
+const createFrontierWorker = require("./workers/frontier-worker");
+const createCrawlerWorker = require("./workers/crawler-worker");
+
 const frontierQueue = require("./queues/frontier"); // We need the queue to add jobs
 const { rateLimitMiddleware } = require("./middleware/rateLimiter");
 
@@ -19,6 +21,7 @@ startMetricsServer();
 
 // 2. Boot the Background Worker
 createFrontierWorker();
+createCrawlerWorker();
 
 // The Queue Polling Loop!
 // This updates the gauges in memory every 3 seconds so Prometheus can scrape them.setInterval(async () => {
@@ -43,7 +46,7 @@ app.post("/ingest", async (req, res) => {
   }
 
   // Add the URL to BullMQ. We don't wait for processing, just queue it and respond fast.
-  await frontierQueue.add("process-url", { url });
+  await frontierQueue.add("ingest-url", { url });
 
   res.status(202).json({ status: "queued" });
 });
