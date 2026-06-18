@@ -1,7 +1,16 @@
 const { Worker } = require("bullmq");
-const config = require("../config");
+const { RateLimiterRedis } = require("rate-limiter-flexible");
 const connection = require("../lib/redis");
+const config = require("../config");
 const logger = require("../lib/logger");
+const { DomainRateLimitError } = require("../errors");
+
+const rateLimiter = new RateLimiterRedis({
+  storeClient: connection,
+  keyPrefix: "ratelimit_domain",
+  points: 1, // Max 100 requests
+  duration: 1, // Per 1 minute
+});
 
 const createCrawlerWorker = () => {
   // Worker responsible for consuming crawl-ready URLs
@@ -12,8 +21,38 @@ const createCrawlerWorker = () => {
       const { url } = job.data;
 
       // Extract hostname for domain-level logging,
-      // rate limiting, and future crawl politeness rules.
-      const { hostname } = new URL(url);
+      let hostname;
+      try {
+        hostname = new URL(url).hostname;
+      } catch (error) {
+        logger.error(
+          { url, error: err.message },
+          "Invalid URL schema received",
+        );
+        return;
+      }
+
+      try {
+        // Atomic check inside redis
+        await rateLimiter.consume(hostname);
+
+        // --- COOL DOMAIN (Proceed with crawl) ---
+        logger.info({ url, domain: hostname }, "Fetching URL contents...");
+      } catch (error) {
+        // check if Rate Limiter is hit
+        if (error.remainingPoints === 0) {
+          // --- HOT DOMAIN (Trigger Re-queue Loop) ---
+          logger.error(
+            { domain: hostname, url },
+            "Domain hot! Re-queueing job...",
+          );
+
+          throw new DomainRateLimitError(hostname);
+        }
+
+        // Handle other system errors
+        throw error;
+      }
 
       logger.info(
         {

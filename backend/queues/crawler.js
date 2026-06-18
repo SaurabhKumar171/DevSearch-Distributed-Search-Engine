@@ -7,8 +7,8 @@ const crawlerQueue = new Queue(config.queue.fetchQueue, {
   defaultJobOptions: {
     attempts: 5,
     backoff: {
-      type: "exponential",
-      delay: 2000, // It will wait 2s, then 4s, then 8s, etc.
+      type: "fixed",
+      delay: 1000, // It will wait 2s, then 4s, then 8s, etc.
     },
     removeOnComplete: 1000,
     removeOnFail: 5000,
