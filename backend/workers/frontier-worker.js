@@ -61,7 +61,14 @@ const createFrontierWorker = () => {
   );
 
   worker.on("failed", (job, err) => {
-    logger.error({ job_id: job?.id, error: err.message }, "Job failed");
+    if (err.name === "DomainRateLimitError") {
+      logger.debug(
+        { jobId: job?.id, url: job?.data?.url },
+        "Job delayed due to rate limiting",
+      );
+    } else {
+      logger.error({ jobId: job?.id, error: err.message }, "Fetch job failed");
+    }
   });
 
   return worker;

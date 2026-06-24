@@ -4,56 +4,96 @@ const connection = require("../lib/redis");
 const config = require("../config");
 const logger = require("../lib/logger");
 const { DomainRateLimitError } = require("../errors");
+const { scrapePage } = require("../utils/scraper");
+const { crawlerActiveWorkers } = require("../lib/metrics");
 
+// Shared Redis-backed Rate Limiter - 1 request per 1 second per domain
 const rateLimiter = new RateLimiterRedis({
   storeClient: connection,
-  keyPrefix: "ratelimit_domain",
-  points: 1, // Max 100 requests
-  duration: 1, // Per 1 minute
+  keyPrefix: "ratelimit:domain:",
+  points: 5,
+  duration: 1,
 });
 
+// ─────────────────────────────────────────────
+// Worker factory
+// ─────────────────────────────────────────────
 const createCrawlerWorker = () => {
-  // Worker responsible for consuming crawl-ready URLs
-  // from the fetch queue and performing page downloads.
   const worker = new Worker(
     config.queue.fetchQueue,
+
     async (job) => {
+      crawlerActiveWorkers.inc();
+
       const { url } = job.data;
 
-      // Extract hostname for domain-level logging,
+      // ─────────────────────────────────────
+      // Validate URL and extract hostname
+      // ─────────────────────────────────────
       let hostname;
+
       try {
         hostname = new URL(url).hostname;
-      } catch (error) {
-        logger.error(
-          { url, error: err.message },
-          "Invalid URL schema received",
-        );
+      } catch (err) {
+        logger.error({ url, error: err.message }, "Invalid URL received");
         return;
       }
 
+      // ─────────────────────────────────────
+      // Rate limiting per domain
+      // ─────────────────────────────────────
       try {
-        // Atomic check inside redis
-        await rateLimiter.consume(hostname);
+        const res = await rateLimiter.consume(hostname);
 
-        // --- COOL DOMAIN (Proceed with crawl) ---
-        logger.info({ url, domain: hostname }, "Fetching URL contents...");
-      } catch (error) {
-        // check if Rate Limiter is hit
-        if (error.remainingPoints === 0) {
-          // --- HOT DOMAIN (Trigger Re-queue Loop) ---
-          logger.error(
-            { domain: hostname, url },
-            "Domain hot! Re-queueing job...",
+        logger.info({
+          jobId: job.id,
+          hostname,
+          remaining: res.remainingPoints,
+        });
+
+        // ─────────────────────────────────
+        // Crawl page
+        // ─────────────────────────────────
+        logger.info(
+          { jobId: job.id, url, hostname },
+          "Fetching URL contents...",
+        );
+
+        await scrapePage(url);
+      } catch (err) {
+        // Rate limiter throws non-Error objects
+        if (!(err instanceof Error)) {
+          logger.warn(
+            {
+              jobId: job.id,
+              hostname,
+              msBeforeNext: err.msBeforeNext,
+            },
+            "Rate limited - re-queueing job",
           );
 
           throw new DomainRateLimitError(hostname);
         }
 
-        // Handle other system errors
-        throw error;
+        // System / network failure
+        logger.error(
+          {
+            jobId: job.id,
+            url,
+            error: err.message,
+          },
+          "Crawler error",
+        );
+
+        throw err;
+      } finally {
+        // GUARANTEED to decrement, even if the scraper crashed, timed out, or threw a 403
+        crawlerActiveWorkers.dec();
       }
 
+      // ─────────────────────────────────────
+      // Success log
+      // ─────────────────────────────────────
       logger.info(
         {
           jobId: job.id,
@@ -61,29 +101,42 @@ const createCrawlerWorker = () => {
           hostname,
           workerId: worker.id,
         },
-        "Crawler worker received fetch job",
+        "Crawler worker completed job",
       );
-
-      // TODO:
-      // 1. Download page content
-      // 2. Parse HTML
-      // 3. Extract outgoing links
-      // 4. Store crawled document
-      // 5. Enqueue newly discovered URLs
     },
+
     {
       connection,
-      // Number of jobs processed concurrently by this worker.
-      // Tune based on network bandwidth and target crawl rate.
       concurrency: 5,
+
+      settings: {
+        backoffStrategy: (attempts, type, err) => {
+          if (err?.name === "DomainRateLimitError") {
+            return 1000; // retry after 1s
+          }
+
+          return Math.min(1000 * Math.pow(2, attempts), 30000);
+        },
+      },
     },
   );
 
+  // ─────────────────────────────────────────────
+  // Event listeners
+  // ─────────────────────────────────────────────
   worker.on("completed", (job) => {
     logger.info({ jobId: job.id, url: job.data.url }, "Fetch job completed");
   });
 
   worker.on("failed", (job, err) => {
+    if (err.name === "DomainRateLimitError") {
+      logger.debug(
+        { jobId: job?.id, url: job?.data?.url },
+        "Rate limited job delayed",
+      );
+      return;
+    }
+
     logger.error(
       {
         jobId: job?.id,

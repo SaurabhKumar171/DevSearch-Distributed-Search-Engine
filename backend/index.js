@@ -38,6 +38,7 @@ setInterval(async () => {
 // 3. Boot the HTTP Ingestion API (Port 3002)
 const app = express();
 app.use(express.json()); // Middleware to parse JSON bodies
+app.use(express.urlencoded({ extended: true }));
 
 app.post("/ingest", async (req, res) => {
   const { url } = req.body;
