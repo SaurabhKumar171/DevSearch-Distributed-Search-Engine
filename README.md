@@ -30,98 +30,146 @@ This system was deliberately engineered to handle massive throughput without rel
 The complete lifecycle of a URL passes dynamically through three specialized zones: **High-Throughput Ingestion**, **Deduplication**, and **Politeness-Controlled Crawling**.
 
 ```mermaid
-flowchart TB
-    %% Architectural Styling & Theme
-    classDef user fill:#f8fafc,stroke:#cbd5e1,stroke-width:2px,color:#334155,stroke-dasharray: 5 5;
-    classDef compute fill:#1e293b,stroke:#3b82f6,stroke-width:2px,color:#f8fafc;
-    classDef datastore fill:#b91c1c,stroke:#f87171,stroke-width:2px,color:#f8fafc;
-    classDef chaos fill:#fef2f2,stroke:#ef4444,stroke-width:2px,color:#991b1b,stroke-dasharray: 5 5;
-    classDef telemetry fill:#f0fdf4,stroke:#22c55e,stroke-width:2px,color:#14532d;
-    classDef note fill:#fef3c7,stroke:#d97706,stroke-width:1px,color:#92400e;
+flowchart LR
 
-    %% 1. Client / Traffic Generation
-    Client["🌐 Load Generator (k6)<br/>~14,000+ RPS"]:::user
+%%==========================
+%% Styles
+%%==========================
+classDef client fill:#F8FAFC,stroke:#94A3B8,color:#0F172A,stroke-width:1.5px;
+classDef service fill:#DBEAFE,stroke:#2563EB,color:#0F172A,stroke-width:1.5px;
+classDef worker fill:#E0F2FE,stroke:#0284C7,color:#0F172A,stroke-width:1.5px;
+classDef storage fill:#FEF2F2,stroke:#DC2626,color:#7F1D1D,stroke-width:1.5px;
+classDef infra fill:#F1F5F9,stroke:#475569,color:#0F172A,stroke-width:1.5px;
+classDef monitor fill:#ECFDF5,stroke:#16A34A,color:#14532D,stroke-width:1.5px;
 
-    %% 2. Edge Ingestion (Phase 1)
-    subgraph EdgeLayer ["🛡️ Edge Ingestion Layer (Phase 1)"]
-        direction TB
-        RateLimiter{"🚦 Ingestion Rate Limiter<br/>(Token Bucket)"}:::compute
-        API["⚙️ Ingestion API<br/>(HTTP 202 Accepted)"]:::compute
-        Reject["⛔ HTTP 429<br/>Too Many Requests"]:::user
-        
-        RateLimiter -- "Pass" --> API
-        RateLimiter -. "Throttle" .-> Reject
-    end
+%%==========================
+%% Client Layer
+%%==========================
 
-    %% 3. Message Broker
-    subgraph MessageBroker ["📦 Message Broker"]
-        IngestQueue[("🐂 Ingestion Queue<br/>queue:urls:ingestion")]:::datastore
-        FetchQueue[("🐂 Fetch Queue<br/>queue:urls:fetch")]:::datastore
-    end
+Client["Load Generator (k6)<br/>≈14K Requests/sec"]:::client
 
-    %% 4. Frontier Processing & Deduplication
-    subgraph DeduplicationEngine ["🧠 Deduplication Frontier"]
-        direction TB
-        FrontierWorker["🛠️ Frontier Worker<br/>(Concurrency: 100)"]:::compute
-        CircuitBreaker{"🔌 Opossum Circuit Breaker"}:::compute
-        Toxiproxy{"☠️ Toxiproxy Proxy"}:::chaos
-        BloomFilter[("🧠 Redis Bloom Filter<br/>bloom:urls:seen")]:::datastore
+%%==========================
+%% Edge Layer
+%%==========================
 
-        FrontierWorker -- "Check Seen-Set" --> CircuitBreaker
-        CircuitBreaker -- "TCP Check" --> Toxiproxy
-        Toxiproxy --> BloomFilter
-    end
+subgraph Edge["Edge Ingestion"]
+direction TB
 
-    %% 5. Politeness Crawler (Phase 2)
-    subgraph CrawlingEngine ["🕷️ Politeness Crawling Engine (Phase 2)"]
-        direction TB
-        CrawlerWorker["🛠️ Crawler Worker<br/>(Concurrency: 5)"]:::compute
-        DomainLimiter{"🚦 Domain Rate Limiter<br/>(Shared Redis-Backed)"}:::datastore
-        StealthScraper["🕵️ Scraper Utility<br/>(Chrome TLS & Headers)"]:::compute
-        FileStorage["💾 Git-Sharded Storage<br/>(2-Tier Hash Folders)"]:::compute
+RateLimiter["Token Bucket<br/>Rate Limiter"]:::service
 
-        CrawlerWorker -- "Check Domain Safe" --> DomainLimiter
-        DomainLimiter -- "Safe (Cool)" --> StealthScraper
-        StealthScraper -- "SHA-256 Local Write" --> FileStorage
-    end
+API["HTTP Ingestion API<br/>Returns 202 Accepted"]:::service
 
-    %% 6. Observability
-    subgraph ObservabilityLayer ["📊 Observability & Telemetry"]
-        Prometheus["📡 Prometheus<br/>(Pull-based Scraper)"]:::telemetry
-        Grafana["📈 Grafana<br/>(Real-time Dashboards)"]:::telemetry
-        cAdvisor["🐳 cAdvisor<br/>(Container Hardware Telemetry)"]:::telemetry
-        
-        Prometheus -- "PromQL" --> Grafana
-    end
+RateLimiter --> API
 
-    %% Ingestion Traffic Flow
-    Client -- "HTTP POST /ingest" --> RateLimiter
-    API -- "1. Enqueue Raw URL" --> IngestQueue
-    IngestQueue -- "2. Pull Job" --> FrontierWorker
-    
-    %% Deduplication Logic & Routing
-    FrontierWorker -. "Unseen URL" .-> FetchQueue
-    
-    %% Fetch Queue Processing
-    FetchQueue -- "3. Pull Fetch Job" --> CrawlerWorker
-    DomainLimiter -. "Hot Domain (429/Limit)" .->|Throw DomainRateLimitError<br/>Schedule 1s Delay| FetchQueue
-    
-    %% Recursive Loop Closure (Phase 2 Link Extraction)
-    StealthScraper -- "4. Cheerio Parse links" --> LinkDiscovery["🔗 Discovered URLs"]:::compute
-    LinkDiscovery -- "5. addBulk(jobs)" --> IngestQueue
+end
 
-    %% Telemetry Routing
-    API -. "/metrics" .-> Prometheus
-    FrontierWorker -. "Ingestion Rates" .-> Prometheus
-    CrawlerWorker -. "Active Workers / Fetches" .-> Prometheus
-    StorageLayer -. "RAM/CPU Stats" .-> cAdvisor
+%%==========================
+%% Queue Layer
+%%==========================
 
-    %% Resilience Annotations
-    Note1>BullMQ Exponential Backoff:<br/>Guarantees zero data loss<br/>during ECONNRESET]:::note
-    Note2>Graceful Degradation:<br/>Circuit opens if Latency > 200ms,<br/>preventing Event Loop blocking & OOM]:::note
+subgraph Queue["Message Broker"]
+direction TB
 
-    Note1 -.-> IngestQueue
-    Note2 -.-> CircuitBreaker
+IngestQueue[("BullMQ<br/>Ingestion Queue")]:::storage
+
+FetchQueue[("BullMQ<br/>Fetch Queue")]:::storage
+
+end
+
+%%==========================
+%% Frontier Layer
+%%==========================
+
+subgraph Frontier["Deduplication Frontier"]
+
+direction TB
+
+FrontierWorker["Frontier Workers<br/>Concurrency = 100"]:::worker
+
+Circuit["Circuit Breaker<br/>Opossum"]:::infra
+
+Bloom["Redis Bloom Filter"]:::storage
+
+Toxi["Toxiproxy<br/>Chaos Testing"]:::infra
+
+FrontierWorker --> Circuit
+Circuit --> Toxi
+Toxi --> Bloom
+
+end
+
+%%==========================
+%% Crawling Layer
+%%==========================
+
+subgraph Crawl["Distributed Crawling"]
+
+direction TB
+
+Crawler["Crawler Workers<br/>Concurrency = 5"]:::worker
+
+Limiter["Redis-backed<br/>Domain Rate Limiter"]:::storage
+
+Scraper["Stealth Chromium Scraper"]:::service
+
+Storage["Git-sharded Storage<br/>SHA-256 Files"]:::storage
+
+Crawler --> Limiter
+Limiter --> Scraper
+Scraper --> Storage
+
+end
+
+%%==========================
+%% Observability
+%%==========================
+
+subgraph Obs["Observability"]
+
+direction TB
+
+Prom["Prometheus"]:::monitor
+
+Grafana["Grafana"]:::monitor
+
+Cad["cAdvisor"]:::monitor
+
+Prom --> Grafana
+
+end
+
+%%==========================
+%% Main Flow
+%%==========================
+
+Client --> RateLimiter
+
+API --> IngestQueue
+
+IngestQueue --> FrontierWorker
+
+Bloom -->|Unseen URL| FetchQueue
+
+FetchQueue --> Crawler
+
+Scraper -->|Extract Links| IngestQueue
+
+%%==========================
+%% Metrics
+%%==========================
+
+API -. Metrics .-> Prom
+FrontierWorker -. Metrics .-> Prom
+Crawler -. Metrics .-> Prom
+Cad -. Host Metrics .-> Prom
+
+%%==========================
+%% Failure Handling
+%%==========================
+
+Circuit -. Opens if Redis latency >200ms .-> FrontierWorker
+
+Limiter -. Hot Domain<br/>Delayed Retry (BullMQ Backoff) .-> FetchQueue
 ```
 
 ---
