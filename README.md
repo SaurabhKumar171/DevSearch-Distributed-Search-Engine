@@ -46,7 +46,7 @@ classDef monitor fill:#ECFDF5,stroke:#16A34A,color:#14532D,stroke-width:1.5px;
 %% Client Layer
 %%==========================
 
-Client["Load Generator (k6)<br/>≈14K Requests/sec"]:::client
+Client["Load Generator (k6) ≈14K Requests/sec"]:::client
 
 %%==========================
 %% Edge Layer
@@ -55,9 +55,9 @@ Client["Load Generator (k6)<br/>≈14K Requests/sec"]:::client
 subgraph Edge["Edge Ingestion"]
 direction TB
 
-RateLimiter["Token Bucket<br/>Rate Limiter"]:::service
+RateLimiter["Token Bucket Rate Limiter"]:::service
 
-API["HTTP Ingestion API<br/>Returns 202 Accepted"]:::service
+API["HTTP Ingestion API Returns 202 Accepted"]:::service
 
 RateLimiter --> API
 
@@ -70,9 +70,9 @@ end
 subgraph Queue["Message Broker"]
 direction TB
 
-IngestQueue[("BullMQ<br/>Ingestion Queue")]:::storage
+IngestQueue[("BullMQ Ingestion Queue")]:::storage
 
-FetchQueue[("BullMQ<br/>Fetch Queue")]:::storage
+FetchQueue[("BullMQ Fetch Queue")]:::storage
 
 end
 
@@ -84,13 +84,13 @@ subgraph Frontier["Deduplication Frontier"]
 
 direction TB
 
-FrontierWorker["Frontier Workers<br/>Concurrency = 100"]:::worker
+FrontierWorker["Frontier Workers Concurrency = 100"]:::worker
 
-Circuit["Circuit Breaker<br/>Opossum"]:::infra
+Circuit["Circuit Breaker Opossum"]:::infra
 
 Bloom["Redis Bloom Filter"]:::storage
 
-Toxi["Toxiproxy<br/>Chaos Testing"]:::infra
+Toxi["Toxiproxy Chaos Testing"]:::infra
 
 FrontierWorker --> Circuit
 Circuit --> Toxi
@@ -106,13 +106,13 @@ subgraph Crawl["Distributed Crawling"]
 
 direction TB
 
-Crawler["Crawler Workers<br/>Concurrency = 5"]:::worker
+Crawler["Crawler Workers Concurrency = 5"]:::worker
 
-Limiter["Redis-backed<br/>Domain Rate Limiter"]:::storage
+Limiter["Redis-backed Domain Rate Limiter"]:::storage
 
 Scraper["Stealth Chromium Scraper"]:::service
 
-Storage["Git-sharded Storage<br/>SHA-256 Files"]:::storage
+Storage["Git-sharded Storage SHA-256 Files"]:::storage
 
 Crawler --> Limiter
 Limiter --> Scraper
