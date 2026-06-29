@@ -5,6 +5,8 @@ const logger = require("../lib/logger");
 const { ingestedUrlsTotal, rejectedUrlsTotal } = require("../lib/metrics");
 const config = require("../config");
 
+const crawlerQueue = require("../queues/crawler"); // We need the queue to add jobs
+
 const breakerOptions = {
   timeout: 200, // <--- If it takes longer than 200ms, assume Redis is dead
   errorThresholdPercentage: 50,
@@ -12,7 +14,7 @@ const breakerOptions = {
 };
 
 const bloomAdd = async (url) => {
-  return connection.call("BF.ADD", "seen-urls-bloom", url);
+  return connection.call("BF.ADD", "bloom:urls:seen", url);
 };
 
 const breaker = new CircuitBreaker(bloomAdd, breakerOptions);
@@ -34,7 +36,7 @@ breaker.fallback(() => {
 
 const createFrontierWorker = () => {
   const worker = new Worker(
-    config.queue.name,
+    config.queue.ingestionQueue,
     async (job) => {
       const { url } = job.data;
 
@@ -43,6 +45,10 @@ const createFrontierWorker = () => {
 
       if (isNew === 1) {
         ingestedUrlsTotal.inc();
+
+        // Added to be crawled - in crawl queue
+        await crawlerQueue.add("fetch-url", { url });
+
         logger.info({ url, worker_id: worker.id }, "URL ingested");
       } else if (isNew === 0) {
         rejectedUrlsTotal.inc();
@@ -55,7 +61,14 @@ const createFrontierWorker = () => {
   );
 
   worker.on("failed", (job, err) => {
-    logger.error({ job_id: job?.id, error: err.message }, "Job failed");
+    if (err.name === "DomainRateLimitError") {
+      logger.debug(
+        { jobId: job?.id, url: job?.data?.url },
+        "Job delayed due to rate limiting",
+      );
+    } else {
+      logger.error({ jobId: job?.id, error: err.message }, "Fetch job failed");
+    }
   });
 
   return worker;

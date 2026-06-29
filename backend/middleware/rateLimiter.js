@@ -1,13 +1,16 @@
-const { RateLimiterMemory } = require("rate-limiter-flexible");
+const { RateLimiterRedis } = require("rate-limiter-flexible");
+const connection = require("../lib/redis");
 
-const rateLimiter = new RateLimiterMemory({
-  points: 100, // 100 requests
-  duration: 60, // per 60 seconds
+const apiRateLimiter = new RateLimiterRedis({
+  storeClient: connection,
+  keyPrefix: "ratelimit_api_ip",
+  points: 100, // Max 100 requests
+  duration: 60, // Per 1 minute
 });
 
 const rateLimitMiddleware = async (req, res, next) => {
   try {
-    await rateLimiter.consume(req.ip);
+    await apiRateLimiter.consume(req.ip);
     next();
   } catch {
     res.status(429).json({
