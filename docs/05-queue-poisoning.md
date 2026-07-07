@@ -93,24 +93,12 @@ When there are only a few skipped URLs, this overhead is negligible. When there 
 
 Initially it looks like the rate limiter is the bottleneck.
 
-It actually isn't.
+It actually isn't. The rate limiter is working exactly as expected. The real issue comes from the scheduling strategy.
 
-The rate limiter is working exactly as expected.
-
-The real issue comes from the scheduling strategy.
-
-Today, scheduling happens at the **URL level**.
-
-Workers first retrieve an individual URL, then check whether its domain is allowed to crawl.
-
-That means if there are 3,500 URLs from the same blocked domain, all 3,500 URLs are examined independently even though they all produce the same answer.
-
-The scheduler is repeatedly asking:
-
+Today, scheduling happens at the **URL level**. Workers first retrieve an individual URL, then check whether its domain is allowed to crawl. That means if there are 3,500 URLs from the same blocked domain, all 3,500 URLs are examined independently even though they all produce the same answer. The scheduler is repeatedly asking:
 > Can I crawl this URL?
 
 when the better question would be:
-
 > Which domain is eligible to crawl next?
 
 That difference is what creates the unnecessary work.
@@ -120,7 +108,6 @@ That difference is what creates the unnecessary work.
 ## Impact
 
 This design causes a few noticeable problems.
-
 - Large domains can dominate the global fetch queue.
 - Workers waste CPU cycles processing URLs that cannot be crawled yet.
 - Thousands of unnecessary Redis lookups are performed.
